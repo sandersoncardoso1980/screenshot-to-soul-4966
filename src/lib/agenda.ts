@@ -76,7 +76,7 @@ export function historico(): Hist[] {
     let p = 0.15;
     if (ubs.includes("rural")) p += 0.12;
     if (hora === "07:30" || hora === "16:30") p += 0.1;
-    out.push({ ubs, hora, servico: SERVICOS[Math.floor(rnd() * 5)], bairro: BAIRROS[Math.floor(rnd() * 5)], faltou: rnd() < p });
+    out.push({ ubs: ubs!, hora: hora!, servico: SERVICOS[Math.floor(rnd() * 5)]!, bairro: BAIRROS[Math.floor(rnd() * 5)]!, faltou: rnd() < p });
   }
   histCache = out;
   return out;
