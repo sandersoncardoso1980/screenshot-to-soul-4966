@@ -75,7 +75,7 @@ function Login({ onLogin }: { onLogin: (c: Cidadao) => void }) {
 }
 
 function Cadastro({ onLogin }: { onLogin: (c: Cidadao) => void }) {
-  const [f, setF] = useState({ nome: "", cpf: "", nascimento: "", telefone: "", bairro: BAIRROS[0], pin: "", aceite: false });
+  const [f, setF] = useState({ nome: "", cpf: "", nascimento: "", telefone: "", bairro: BAIRROS[0]!, pin: "", aceite: false });
   const [err, setErr] = useState("");
   const set = (k: keyof typeof f, v: string | boolean) => setF({ ...f, [k]: v });
   const submit = (e: React.FormEvent) => {
@@ -124,7 +124,7 @@ function AreaLogada({ user, onLogout }: { user: Cidadao; onLogout: () => void })
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center gap-4 rounded-2xl bg-hero p-5 text-primary-foreground">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary-foreground/20 text-xl font-bold">{user.nome[0]}</div>
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary-foreground/20 text-xl font-bold">{user.nome.charAt(0)}</div>
         <div className="min-w-0 flex-1">
           <p className="text-sm opacity-80">Olá,</p>
           <h2 className="truncate text-xl font-bold">{user.nome}</h2>
@@ -155,7 +155,7 @@ function AreaLogada({ user, onLogout }: { user: Cidadao; onLogout: () => void })
 }
 
 function NovoAgendamento({ user, onDone, ags }: { user: Cidadao; onDone: () => void; ags: Agendamento[] }) {
-  const [ubs, setUbs] = useState(UBS[0]); const [servico, setServico] = useState(SERVICOS[0]);
+  const [ubs, setUbs] = useState(UBS[0]!); const [servico, setServico] = useState(SERVICOS[0]!);
   const [data, setData] = useState(""); const [hora, setHora] = useState(""); const [msg, setMsg] = useState({ t: "", ok: false });
   const [hoje, setHoje] = useState("");
   useEffect(() => { const d = new Date(); d.setDate(d.getDate() + 1); setHoje(d.toISOString().slice(0, 10)); }, []);
