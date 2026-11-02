@@ -74,7 +74,7 @@ export function historico(): Hist[] {
     const ubs = UBS[Math.floor(rnd() * 3)];
     const hora = HORARIOS[Math.floor(rnd() * HORARIOS.length)];
     let p = 0.15;
-    if (ubs.includes("rural")) p += 0.12;
+    if (ubs!.includes("rural")) p += 0.12;
     if (hora === "07:30" || hora === "16:30") p += 0.1;
     out.push({ ubs: ubs!, hora: hora!, servico: SERVICOS[Math.floor(rnd() * 5)]!, bairro: BAIRROS[Math.floor(rnd() * 5)]!, faltou: rnd() < p });
   }
