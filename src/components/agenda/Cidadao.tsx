@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { agendar, cancelarAgendamento, cidadaoCadastro, cidadaoLogin, horariosOcupados, meusAgendamentos } from "@/lib/agenda.functions";
 import { LogOut, CalendarCheck, X } from "lucide-react";
 import {
-  BAIRROS, HORARIOS, SERVICOS, UBS, type Agendamento, type Cidadao,
-  formatCPF, getAgendamentos, getCidadaos, ocupados, onlyDigits, saveAgendamentos, saveCidadaos, validarCPF,
+  BAIRROS, HORARIOS, SERVICOS, UBS, type Cidadao,
+  formatCPF, onlyDigits, validarCPF,
 } from "@/lib/agenda";
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -22,18 +23,21 @@ export function Msg({ text, ok }: { text: string; ok?: boolean }) {
   return <p className={`rounded-lg px-3 py-2 text-sm ${ok ? "bg-success/10 text-success" : "bg-destructive/10 text-destructive"}`}>{text}</p>;
 }
 
+type Sessao = Cidadao & { pin: string };
+export const errMsg = (e: unknown) => (e instanceof Error ? e.message : "Erro inesperado.");
+
 export function PortalCidadao() {
-  const [user, setUser] = useState<Cidadao | null>(null);
+  const [user, setUser] = useState<Sessao | null>(null);
   useEffect(() => {
-    const cpf = sessionStorage.getItem("as_sessao");
-    if (cpf) setUser(getCidadaos().find((c) => c.cpf === cpf) ?? null);
+    const raw = sessionStorage.getItem("as_sessao");
+    if (raw) cidadaoLogin({ data: JSON.parse(raw) }).then((c) => setUser({ ...c, pin: JSON.parse(raw).pin })).catch(() => sessionStorage.removeItem("as_sessao"));
   }, []);
-  const login = (c: Cidadao) => { sessionStorage.setItem("as_sessao", c.cpf); setUser(c); };
+  const login = (c: Sessao) => { sessionStorage.setItem("as_sessao", JSON.stringify({ cpf: c.cpf, pin: c.pin })); setUser(c); };
   const logout = () => { sessionStorage.removeItem("as_sessao"); setUser(null); };
   return user ? <AreaLogada user={user} onLogout={logout} /> : <Auth onLogin={login} />;
 }
 
-function Auth({ onLogin }: { onLogin: (c: Cidadao) => void }) {
+function Auth({ onLogin }: { onLogin: (c: Sessao) => void }) {
   const [tab, setTab] = useState<"entrar" | "cadastro">("entrar");
   return (
     <div className="mx-auto max-w-md">
@@ -55,43 +59,41 @@ function Auth({ onLogin }: { onLogin: (c: Cidadao) => void }) {
   );
 }
 
-function Login({ onLogin }: { onLogin: (c: Cidadao) => void }) {
+function Login({ onLogin }: { onLogin: (c: Sessao) => void }) {
   const [cpf, setCpf] = useState(""); const [pin, setPin] = useState(""); const [err, setErr] = useState("");
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const c = getCidadaos().find((x) => x.cpf === onlyDigits(cpf));
-    if (!c || c.pin !== pin) return setErr("CPF ou PIN incorretos.");
-    onLogin(c);
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setBusy(true); setErr("");
+    try { const c = await cidadaoLogin({ data: { cpf, pin } }); onLogin({ ...c, pin }); } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
   };
   return (
     <form onSubmit={submit} className="space-y-4">
       <Field label="CPF"><input className="field" inputMode="numeric" value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" /></Field>
       <Field label="PIN"><input className="field" type="password" inputMode="numeric" maxLength={6} value={pin} onChange={(e) => setPin(onlyDigits(e.target.value))} /></Field>
       <Msg text={err} />
-      <Btn className="w-full" type="submit">Entrar</Btn>
+      <Btn className="w-full" type="submit" disabled={busy}>{busy ? "Entrando..." : "Entrar"}</Btn>
       <p className="text-center text-xs text-muted-foreground">Demonstração: CPF 111.444.777-35 · PIN 1234</p>
     </form>
   );
 }
 
-function Cadastro({ onLogin }: { onLogin: (c: Cidadao) => void }) {
+function Cadastro({ onLogin }: { onLogin: (c: Sessao) => void }) {
   const [f, setF] = useState({ nome: "", cpf: "", nascimento: "", telefone: "", bairro: BAIRROS[0]!, pin: "", aceite: false });
   const [err, setErr] = useState("");
   const set = (k: keyof typeof f, v: string | boolean) => setF({ ...f, [k]: v });
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cpf = onlyDigits(f.cpf);
     if (f.nome.trim().split(" ").length < 2) return setErr("Informe o nome completo.");
     if (!validarCPF(cpf)) return setErr("CPF inválido.");
-    const lista = getCidadaos();
-    if (lista.some((c) => c.cpf === cpf)) return setErr("CPF já cadastrado.");
     if (!f.nascimento) return setErr("Informe a data de nascimento.");
     if (onlyDigits(f.telefone).length < 10) return setErr("Telefone inválido.");
     if (!/^\d{4,6}$/.test(f.pin)) return setErr("O PIN deve ter de 4 a 6 dígitos.");
     if (!f.aceite) return setErr("É necessário aceitar o aviso de privacidade.");
-    const c: Cidadao = { cpf, nome: f.nome.trim(), nascimento: f.nascimento, telefone: f.telefone, bairro: f.bairro, pin: f.pin };
-    saveCidadaos([...lista, c]);
-    onLogin(c);
+    try {
+      const c = await cidadaoCadastro({ data: { cpf, nome: f.nome.trim(), nascimento: f.nascimento, telefone: f.telefone, bairro: f.bairro, pin: f.pin } });
+      onLogin({ ...c, pin: f.pin });
+    } catch (e) { setErr(errMsg(e)); }
   };
   return (
     <form onSubmit={submit} className="space-y-4">
@@ -115,12 +117,12 @@ function Cadastro({ onLogin }: { onLogin: (c: Cidadao) => void }) {
   );
 }
 
-function AreaLogada({ user, onLogout }: { user: Cidadao; onLogout: () => void }) {
-  const [ags, setAgs] = useState<Agendamento[]>([]);
-  const refresh = () => setAgs(getAgendamentos());
+type Meu = { id: string; ubs: string; servico: string; data: string; hora: string };
+function AreaLogada({ user, onLogout }: { user: Sessao; onLogout: () => void }) {
+  const [meus, setMeus] = useState<Meu[]>([]);
+  const refresh = () => { meusAgendamentos({ data: { cpf: user.cpf, pin: user.pin } }).then(setMeus).catch(() => {}); };
   useEffect(refresh, []);
-  const meus = ags.filter((a) => a.cpf === user.cpf && a.status === "agendado").sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora));
-  const cancelar = (id: string) => { saveAgendamentos(getAgendamentos().map((a) => (a.id === id ? { ...a, status: "cancelado" } : a))); refresh(); };
+  const cancelar = async (id: string) => { await cancelarAgendamento({ data: { cpf: user.cpf, pin: user.pin, id } }); refresh(); };
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center gap-4 rounded-2xl bg-hero p-5 text-primary-foreground">
@@ -132,7 +134,7 @@ function AreaLogada({ user, onLogout }: { user: Cidadao; onLogout: () => void })
         </div>
         <button onClick={onLogout} className="rounded-lg p-2 hover:bg-primary-foreground/15" aria-label="Sair"><LogOut className="h-5 w-5" /></button>
       </div>
-      <NovoAgendamento user={user} onDone={refresh} ags={ags} />
+      <NovoAgendamento user={user} onDone={refresh} n={meus.length} />
       <section className="card-surface p-5">
         <h3 className="mb-4 text-lg font-semibold">Meus agendamentos</h3>
         {meus.length === 0 ? <p className="text-sm text-muted-foreground">Você não tem agendamentos ativos.</p> : (
@@ -154,17 +156,19 @@ function AreaLogada({ user, onLogout }: { user: Cidadao; onLogout: () => void })
   );
 }
 
-function NovoAgendamento({ user, onDone, ags }: { user: Cidadao; onDone: () => void; ags: Agendamento[] }) {
+function NovoAgendamento({ user, onDone, n }: { user: Sessao; onDone: () => void; n: number }) {
   const [ubs, setUbs] = useState(UBS[0]!); const [servico, setServico] = useState(SERVICOS[0]!);
   const [data, setData] = useState(""); const [hora, setHora] = useState(""); const [msg, setMsg] = useState({ t: "", ok: false });
   const [hoje, setHoje] = useState("");
   useEffect(() => { const d = new Date(); d.setDate(d.getDate() + 1); setHoje(d.toISOString().slice(0, 10)); }, []);
-  const indisp = useMemo(() => (data ? ocupados(ubs, servico, data) : []), [ubs, servico, data, ags]);
-  const confirmar = () => {
+  const [indisp, setIndisp] = useState<string[]>([]);
+  useEffect(() => { if (data) horariosOcupados({ data: { ubs, servico, data } }).then(setIndisp).catch(() => setIndisp([])); else setIndisp([]); }, [ubs, servico, data, n]);
+  const confirmar = async () => {
     if (!data || !hora) return setMsg({ t: "Escolha data e horário.", ok: false });
-    if (indisp.includes(hora)) return setMsg({ t: "Horário indisponível.", ok: false });
-    const a: Agendamento = { id: crypto.randomUUID(), cpf: user.cpf, nome: user.nome, bairro: user.bairro, ubs, servico, data, hora, status: "agendado", criadoEm: new Date().toISOString() };
-    saveAgendamentos([...getAgendamentos(), a]); setHora(""); setMsg({ t: "Agendamento confirmado!", ok: true }); onDone();
+    try {
+      await agendar({ data: { cpf: user.cpf, pin: user.pin, ubs, servico, data, hora } });
+      setHora(""); setMsg({ t: "Agendamento confirmado!", ok: true }); onDone();
+    } catch (e) { setMsg({ t: errMsg(e), ok: false }); }
   };
   return (
     <section className="card-surface space-y-4 p-5">
