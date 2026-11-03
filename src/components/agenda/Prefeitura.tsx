@@ -1,13 +1,17 @@
-import { useEffect, useState } from "react";
-import { LogOut, ShieldCheck } from "lucide-react";
-import { Btn, Field, Msg } from "./Cidadao";
+import { useEffect, useMemo, useState } from "react";
+import { LogOut, MessageCircle, RefreshCw, ShieldCheck } from "lucide-react";
+import { Btn, Field, Msg, errMsg } from "./Cidadao";
 import {
-  BAIRROS, HORARIOS, SERVICOS, STAFF, UBS, type Agendamento, type Log,
-  addLog, getAgendamentos, getCidadaos, getLogs, historico, maskCPF, onlyDigits, saveAgendamentos, saveCidadaos, validarCPF,
+  BAIRROS, HORARIOS, SERVICOS, UBS, type Agendamento, type Log, dataBR, historico, maskCPF, onlyDigits, validarCPF, waLink,
 } from "@/lib/agenda";
+import {
+  gestaoDados, gestaoSalvarWhatsapp, recepcaoDados, recepcaoMarcar, recepcaoResetPin, staffLogin,
+} from "@/lib/agenda.functions";
+
+type Op = { user: string; senha: string; area: "recepcao" | "gestao" };
 
 export function AreaPrefeitura() {
-  const [op, setOp] = useState<{ user: string; area: "recepcao" | "gestao" } | null>(null);
+  const [op, setOp] = useState<Op | null>(null);
   if (!op) return <StaffLogin onLogin={setOp} />;
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -18,19 +22,18 @@ export function AreaPrefeitura() {
         </div>
         <Btn variant="outline" onClick={() => setOp(null)}><LogOut className="h-4 w-4" />Sair</Btn>
       </div>
-      {op.area === "recepcao" ? <Recepcao operador={op.user} /> : <Gestao />}
+      {op.area === "recepcao" ? <Recepcao op={op} /> : <Gestao op={op} />}
     </div>
   );
 }
 
-function StaffLogin({ onLogin }: { onLogin: (o: { user: string; area: "recepcao" | "gestao" }) => void }) {
+function StaffLogin({ onLogin }: { onLogin: (o: Op) => void }) {
   const [area, setArea] = useState<"recepcao" | "gestao">("recepcao");
   const [u, setU] = useState(""); const [s, setS] = useState(""); const [err, setErr] = useState("");
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const st = STAFF[u.trim()];
-    if (!st || st.senha !== s || st.area !== area) return setErr("Usuário ou senha inválidos para esta área.");
-    addLog(u.trim(), "Login realizado"); onLogin({ user: u.trim(), area });
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setErr("");
+    try { await staffLogin({ data: { user: u.trim(), senha: s, area } }); onLogin({ user: u.trim(), senha: s, area }); }
+    catch (e) { setErr(errMsg(e)); }
   };
   return (
     <div className="mx-auto max-w-md card-surface p-6">
@@ -57,30 +60,61 @@ const STATUS_STYLE: Record<string, string> = {
   agendado: "bg-secondary text-secondary-foreground", compareceu: "bg-success/15 text-success",
   faltou: "bg-destructive/15 text-destructive", cancelado: "bg-muted text-muted-foreground",
 };
+const STATUS = ["agendado", "compareceu", "faltou", "cancelado"];
 
-function Recepcao({ operador }: { operador: string }) {
-  const [ags, setAgs] = useState<Agendamento[]>([]); const [logs, setLogs] = useState<Log[]>([]);
-  const refresh = () => { setAgs(getAgendamentos()); setLogs(getLogs()); };
-  useEffect(refresh, []);
-  const marcar = (a: Agendamento, status: "compareceu" | "faltou") => {
-    saveAgendamentos(getAgendamentos().map((x) => (x.id === a.id ? { ...x, status } : x)));
-    addLog(operador, `Marcou "${status === "compareceu" ? "Compareceu" : "Faltou"}" – ${maskCPF(a.cpf)} (${a.data} ${a.hora})`); refresh();
+function textoAg(a: Agendamento) {
+  return `*Agendamento AgendaSaúde*\nPaciente: ${a.nome}\nCPF: ${maskCPF(a.cpf)}\nTelefone: ${a.telefone ?? "-"}\nUnidade: ${a.ubs}\nServiço: ${a.servico}\nData: ${dataBR(a.data)} às ${a.hora}\nStatus: ${a.status}`;
+}
+
+function Recepcao({ op }: { op: Op }) {
+  const [ags, setAgs] = useState<Agendamento[]>([]); const [logs, setLogs] = useState<Log[]>([]); const [wa, setWa] = useState("");
+  const [loading, setLoading] = useState(true);
+  const refresh = () => {
+    setLoading(true);
+    recepcaoDados({ data: op }).then((r) => { setAgs(r.agendamentos); setLogs(r.logs); setWa(r.whatsapp); }).finally(() => setLoading(false));
   };
-  const lista = [...ags].sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora));
+  useEffect(refresh, []);
+  const [f, setF] = useState({ busca: "", de: "", ate: "", ubs: "", servico: "", status: "" });
+  const set = (k: keyof typeof f, v: string) => setF({ ...f, [k]: v });
+  const lista = useMemo(() => {
+    const q = f.busca.trim().toLowerCase(); const qd = onlyDigits(q);
+    return ags.filter((a) =>
+      (!q || a.nome.toLowerCase().includes(q) || (qd.length >= 3 && a.cpf.includes(qd))) &&
+      (!f.de || a.data >= f.de) && (!f.ate || a.data <= f.ate) &&
+      (!f.ubs || a.ubs === f.ubs) && (!f.servico || a.servico === f.servico) && (!f.status || a.status === f.status));
+  }, [ags, f]);
+  const marcar = async (a: Agendamento, status: "compareceu" | "faltou") => { await recepcaoMarcar({ data: { ...op, id: a.id, status } }); refresh(); };
+  const resumo = `*Agendamentos AgendaSaúde* (${lista.length})\n` + lista.slice(0, 40).map((a) => `• ${dataBR(a.data)} ${a.hora} – ${a.nome} – ${a.ubs} – ${a.servico} (${a.status})`).join("\n");
+
   return (
     <div className="space-y-6">
       <section className="card-surface overflow-hidden">
-        <h3 className="p-5 pb-3 text-lg font-semibold">Agenda geral</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3 p-5 pb-3">
+          <h3 className="text-lg font-semibold">Agendamentos <span className="text-sm font-normal text-muted-foreground">({lista.length} de {ags.length})</span></h3>
+          <div className="flex gap-2">
+            <Btn variant="outline" onClick={refresh}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Atualizar</Btn>
+            {wa && lista.length > 0 && <a href={waLink(wa, resumo)} target="_blank" rel="noreferrer"><Btn><MessageCircle className="h-4 w-4" />Enviar lista no WhatsApp</Btn></a>}
+          </div>
+        </div>
+        {!wa && <p className="mx-5 mb-3 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">Nenhum WhatsApp de encaminhamento definido. A gestão pode configurá-lo na área de Análises.</p>}
+        <div className="grid gap-3 border-y border-border bg-muted/40 p-4 sm:grid-cols-3 lg:grid-cols-6">
+          <Field label="Nome ou CPF"><input className="field" value={f.busca} onChange={(e) => set("busca", e.target.value)} placeholder="Buscar..." /></Field>
+          <Field label="De"><input className="field" type="date" value={f.de} onChange={(e) => set("de", e.target.value)} /></Field>
+          <Field label="Até"><input className="field" type="date" value={f.ate} onChange={(e) => set("ate", e.target.value)} /></Field>
+          <Field label="Unidade"><Sel v={f.ubs} on={(v) => set("ubs", v)} opts={UBS} /></Field>
+          <Field label="Serviço"><Sel v={f.servico} on={(v) => set("servico", v)} opts={SERVICOS} /></Field>
+          <Field label="Status"><Sel v={f.status} on={(v) => set("status", v)} opts={STATUS} /></Field>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[860px] text-sm">
             <thead className="bg-muted text-left text-muted-foreground">
               <tr>{["Data", "Hora", "Paciente", "CPF", "Unidade", "Serviço", "Status", "Ações"].map((h) => <th key={h} className="px-4 py-2 font-medium">{h}</th>)}</tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {lista.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-muted-foreground">Nenhum agendamento ainda.</td></tr>}
+              {lista.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-muted-foreground">{loading ? "Carregando..." : "Nenhum agendamento encontrado."}</td></tr>}
               {lista.map((a) => (
                 <tr key={a.id}>
-                  <td className="px-4 py-2">{new Date(a.data + "T00:00").toLocaleDateString("pt-BR")}</td>
+                  <td className="px-4 py-2">{dataBR(a.data)}</td>
                   <td className="px-4 py-2">{a.hora}</td>
                   <td className="px-4 py-2 font-medium">{a.nome}</td>
                   <td className="px-4 py-2 text-muted-foreground">{maskCPF(a.cpf)}</td>
@@ -88,12 +122,13 @@ function Recepcao({ operador }: { operador: string }) {
                   <td className="px-4 py-2">{a.servico}</td>
                   <td className="px-4 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[a.status]}`}>{a.status}</span></td>
                   <td className="px-4 py-2">
-                    {a.status === "agendado" && (
-                      <div className="flex gap-1">
+                    <div className="flex gap-1">
+                      {a.status === "agendado" && <>
                         <button onClick={() => marcar(a, "compareceu")} className="rounded-md bg-success/15 px-2 py-1 text-xs font-semibold text-success">Compareceu</button>
                         <button onClick={() => marcar(a, "faltou")} className="rounded-md bg-destructive/15 px-2 py-1 text-xs font-semibold text-destructive">Faltou</button>
-                      </div>
-                    )}
+                      </>}
+                      {wa && <a href={waLink(wa, textoAg(a))} target="_blank" rel="noreferrer" aria-label="Enviar no WhatsApp" className="rounded-md bg-success/15 px-2 py-1 text-success"><MessageCircle className="h-4 w-4" /></a>}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -102,7 +137,7 @@ function Recepcao({ operador }: { operador: string }) {
         </div>
       </section>
       <div className="grid gap-6 md:grid-cols-2">
-        <ResetPin operador={operador} onDone={refresh} />
+        <ResetPin op={op} onDone={refresh} />
         <section className="card-surface p-5">
           <h3 className="mb-3 text-lg font-semibold">Auditoria</h3>
           <ul className="max-h-72 space-y-2 overflow-y-auto text-sm">
@@ -119,19 +154,20 @@ function Recepcao({ operador }: { operador: string }) {
   );
 }
 
-function ResetPin({ operador, onDone }: { operador: string; onDone: () => void }) {
+function Sel({ v, on, opts }: { v: string; on: (v: string) => void; opts: string[] }) {
+  return <select className="field" value={v} onChange={(e) => on(e.target.value)}><option value="">Todos</option>{opts.map((o) => <option key={o}>{o}</option>)}</select>;
+}
+
+function ResetPin({ op, onDone }: { op: Op; onDone: () => void }) {
   const [cpf, setCpf] = useState(""); const [pin, setPin] = useState(""); const [doc, setDoc] = useState(false); const [m, setM] = useState({ t: "", ok: false });
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const c = onlyDigits(cpf);
-    if (!validarCPF(c)) return setM({ t: "CPF inválido.", ok: false });
-    const lista = getCidadaos(); const cid = lista.find((x) => x.cpf === c);
-    if (!cid) return setM({ t: "Cidadão não encontrado.", ok: false });
+    if (!validarCPF(cpf)) return setM({ t: "CPF inválido.", ok: false });
     if (!doc) return setM({ t: "Confirme a conferência do documento com foto.", ok: false });
-    if (!/^\d{4,6}$/.test(pin)) return setM({ t: "O novo PIN deve ter de 4 a 6 dígitos.", ok: false });
-    saveCidadaos(lista.map((x) => (x.cpf === c ? { ...x, pin } : x)));
-    addLog(operador, `Redefiniu PIN – ${maskCPF(c)}`);
-    setCpf(""); setPin(""); setDoc(false); setM({ t: `PIN de ${cid.nome} redefinido.`, ok: true }); onDone();
+    try {
+      const r = await recepcaoResetPin({ data: { ...op, cpf, pin } });
+      setCpf(""); setPin(""); setDoc(false); setM({ t: `PIN de ${r.nome} redefinido.`, ok: true }); onDone();
+    } catch (e) { setM({ t: errMsg(e), ok: false }); }
   };
   return (
     <form onSubmit={submit} className="card-surface space-y-4 p-5">
@@ -145,25 +181,49 @@ function ResetPin({ operador, onDone }: { operador: string; onDone: () => void }
   );
 }
 
+function WhatsappConfig({ op, atual, onSaved }: { op: Op; atual: string; onSaved: () => void }) {
+  const [num, setNum] = useState(atual); const [m, setM] = useState({ t: "", ok: false });
+  useEffect(() => setNum(atual), [atual]);
+  const salvar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try { await gestaoSalvarWhatsapp({ data: { ...op, numero: num } }); setM({ t: "Número salvo.", ok: true }); onSaved(); }
+    catch (e) { setM({ t: errMsg(e), ok: false }); }
+  };
+  return (
+    <form onSubmit={salvar} className="card-surface space-y-3 p-5">
+      <div className="flex items-center gap-2"><MessageCircle className="h-5 w-5 text-success" /><h3 className="font-semibold">WhatsApp para encaminhar agendamentos</h3></div>
+      <p className="text-sm text-muted-foreground">A recepção poderá enviar agendamentos para este número com um clique.</p>
+      <div className="flex flex-wrap gap-2">
+        <input className="field max-w-xs" inputMode="tel" placeholder="55 11 98888-7777" value={num} onChange={(e) => setNum(e.target.value)} />
+        <Btn type="submit">Salvar</Btn>
+        {atual && <a href={waLink(atual, "Teste do AgendaSaúde")} target="_blank" rel="noreferrer"><Btn type="button" variant="outline">Testar</Btn></a>}
+      </div>
+      <p className="text-xs text-muted-foreground">Inclua o código do país (55) e o DDD. Deixe vazio para desativar.</p>
+      <Msg text={m.t} ok={m.ok} />
+    </form>
+  );
+}
+
 type Row = { ubs: string; servico: string; hora: string; bairro: string; faltou: boolean; final: boolean };
 
-function Gestao() {
-  const [rows, setRows] = useState<Row[]>([]); const [cid, setCid] = useState(0);
-  useEffect(() => {
-    const real = getAgendamentos().filter((a) => a.status !== "cancelado").map((a) => ({ ...a, faltou: a.status === "faltou", final: a.status !== "agendado" }));
-    setRows([...historico().map((h) => ({ ...h, final: true })), ...real]); setCid(getCidadaos().length);
-  }, []);
+function Gestao({ op }: { op: Op }) {
+  const [rows, setRows] = useState<Row[]>([]); const [cid, setCid] = useState(0); const [wa, setWa] = useState("");
+  const load = () => gestaoDados({ data: op }).then((r) => {
+    setRows([...historico().map((h) => ({ ...h, final: true })), ...r.rows]); setCid(r.cidadaos); setWa(r.whatsapp);
+  });
+  useEffect(() => { load(); }, []);
   const finais = rows.filter((r) => r.final);
   const taxa = (l: Row[]) => { const f = l.filter((r) => r.final); return f.length ? (f.filter((r) => r.faltou).length / f.length) * 100 : 0; };
   const geral = taxa(finais);
   const por = (key: "ubs" | "hora", keys: string[]) => keys.map((k) => ({ k, v: taxa(rows.filter((r) => r[key] === k)) }));
   const cont = (key: "servico" | "bairro", keys: string[]) => keys.map((k) => ({ k, v: rows.filter((r) => r[key] === k).length }));
   const fUbs = por("ubs", UBS), fHora = por("hora", HORARIOS), dServ = cont("servico", SERVICOS), dBairro = cont("bairro", BAIRROS);
-  const max = <T extends { v: number }>(l: T[]) => l.reduce((a, b) => (b.v > a.v ? b : a), l[0] ?? { k: "", v: 0 } as unknown as T);
-  if (!rows.length) return null;
-  const pu = max(fUbs) as { k: string; v: number }, ph = max(fHora) as { k: string; v: number }, ps = max(dServ) as { k: string; v: number };
+  const max = (l: { k: string; v: number }[]) => l.reduce((a, b) => (b.v > a.v ? b : a), l[0] ?? { k: "", v: 0 });
+  if (!rows.length) return <p className="text-sm text-muted-foreground">Carregando...</p>;
+  const pu = max(fUbs), ph = max(fHora), ps = max(dServ);
   return (
     <div className="space-y-6">
+      <WhatsappConfig op={op} atual={wa} onSaved={load} />
       <div className="grid gap-4 sm:grid-cols-3">
         <Kpi label="Total de agendamentos" value={rows.length.toLocaleString("pt-BR")} />
         <Kpi label="Taxa geral de faltas" value={`${geral.toFixed(1)}%`} />
@@ -180,7 +240,7 @@ function Gestao() {
         <Chart title="Uso por bairro" data={dBairro} color="bg-chart-4" />
       </div>
       <p className="rounded-lg bg-muted p-4 text-xs text-muted-foreground">
-        <b>LGPD:</b> os indicadores são calculados sobre dados anonimizados e agregados (360 registros históricos fictícios + registros da sessão). Nenhuma informação pessoal identificável é exibida neste painel.
+        <b>LGPD:</b> os indicadores são calculados sobre dados anonimizados e agregados (360 registros históricos fictícios + agendamentos reais). Nenhuma informação pessoal identificável é exibida neste painel.
       </p>
     </div>
   );
