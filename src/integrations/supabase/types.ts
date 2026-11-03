@@ -14,7 +14,113 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      agendamentos: {
+        Row: {
+          cpf: string
+          criado_em: string
+          data: string
+          hora: string
+          id: string
+          servico: string
+          status: string
+          ubs: string
+        }
+        Insert: {
+          cpf: string
+          criado_em?: string
+          data: string
+          hora: string
+          id?: string
+          servico: string
+          status?: string
+          ubs: string
+        }
+        Update: {
+          cpf?: string
+          criado_em?: string
+          data?: string
+          hora?: string
+          id?: string
+          servico?: string
+          status?: string
+          ubs?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agendamentos_cpf_fkey"
+            columns: ["cpf"]
+            isOneToOne: false
+            referencedRelation: "cidadaos"
+            referencedColumns: ["cpf"]
+          },
+        ]
+      }
+      cidadaos: {
+        Row: {
+          bairro: string
+          cpf: string
+          criado_em: string
+          nascimento: string
+          nome: string
+          pin_hash: string
+          telefone: string
+        }
+        Insert: {
+          bairro: string
+          cpf: string
+          criado_em?: string
+          nascimento: string
+          nome: string
+          pin_hash: string
+          telefone: string
+        }
+        Update: {
+          bairro?: string
+          cpf?: string
+          criado_em?: string
+          nascimento?: string
+          nome?: string
+          pin_hash?: string
+          telefone?: string
+        }
+        Relationships: []
+      }
+      configuracoes: {
+        Row: {
+          chave: string
+          valor: string
+        }
+        Insert: {
+          chave: string
+          valor?: string
+        }
+        Update: {
+          chave?: string
+          valor?: string
+        }
+        Relationships: []
+      }
+      logs: {
+        Row: {
+          acao: string
+          id: number
+          operador: string
+          quando: string
+        }
+        Insert: {
+          acao: string
+          id?: number
+          operador: string
+          quando?: string
+        }
+        Update: {
+          acao?: string
+          id?: number
+          operador?: string
+          quando?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
