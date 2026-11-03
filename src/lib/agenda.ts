@@ -3,9 +3,9 @@ export const UBS = ["UBS Centro", "UBS Vila Nova", "UBS São José (rural)"];
 export const SERVICOS = ["Clínico geral", "Pediatria", "Ginecologia", "Odontologia", "Exames de sangue"];
 export const HORARIOS = ["07:30", "08:30", "09:30", "10:30", "13:30", "14:30", "15:30", "16:30"];
 
-export type Cidadao = { cpf: string; nome: string; nascimento: string; telefone: string; bairro: string; pin: string };
+export type Cidadao = { cpf: string; nome: string; nascimento: string; telefone: string; bairro: string };
 export type Status = "agendado" | "compareceu" | "faltou" | "cancelado";
-export type Agendamento = { id: string; cpf: string; nome: string; bairro: string; ubs: string; servico: string; data: string; hora: string; status: Status; criadoEm: string };
+export type Agendamento = { id: string; cpf: string; nome: string; bairro: string; telefone?: string; ubs: string; servico: string; data: string; hora: string; status: Status; criadoEm: string };
 export type Log = { quando: string; operador: string; acao: string };
 
 export function onlyDigits(s: string) { return s.replace(/\D/g, ""); }
@@ -28,35 +28,10 @@ export function formatCPF(c: string) {
 }
 export function maskCPF(c: string) { const d = onlyDigits(c); return `***.${d.slice(3, 6)}.***-${d.slice(9, 11)}`; }
 
-const K = { cid: "as_cidadaos", ag: "as_agendamentos", log: "as_logs" };
-function read<T>(k: string, def: T): T {
-  if (typeof window === "undefined") return def;
-  try { const v = localStorage.getItem(k); return v ? (JSON.parse(v) as T) : def; } catch { return def; }
+export function waLink(numero: string, texto: string) {
+  return `https://wa.me/${onlyDigits(numero)}?text=${encodeURIComponent(texto)}`;
 }
-function write(k: string, v: unknown) { localStorage.setItem(k, JSON.stringify(v)); }
-
-const DEMO: Cidadao = { cpf: "11144477735", nome: "Maria da Silva", nascimento: "1985-04-12", telefone: "(11) 98888-7777", bairro: "Centro", pin: "1234" };
-
-export function getCidadaos(): Cidadao[] {
-  const l = read<Cidadao[]>(K.cid, []);
-  if (!l.find((c) => c.cpf === DEMO.cpf)) { l.unshift(DEMO); write(K.cid, l); }
-  return l;
-}
-export function saveCidadaos(l: Cidadao[]) { write(K.cid, l); }
-export function getAgendamentos(): Agendamento[] { return read<Agendamento[]>(K.ag, []); }
-export function saveAgendamentos(l: Agendamento[]) { write(K.ag, l); }
-export function getLogs(): Log[] { return read<Log[]>(K.log, []); }
-export function addLog(operador: string, acao: string) {
-  const l = getLogs(); l.unshift({ quando: new Date().toISOString(), operador, acao }); write(K.log, l.slice(0, 100));
-}
-
-export function ocupados(ubs: string, servico: string, data: string): string[] {
-  const taken = getAgendamentos().filter((a) => a.ubs === ubs && a.servico === servico && a.data === data && a.status !== "cancelado").map((a) => a.hora);
-  // horários indisponíveis simulados (determinísticos)
-  const seed = [...(ubs + servico + data)].reduce((s, ch) => s + ch.charCodeAt(0), 0);
-  const fake = HORARIOS.filter((_, i) => (seed + i * 7) % 5 === 0);
-  return Array.from(new Set([...taken, ...fake]));
-}
+export function dataBR(d: string) { return new Date(d + "T00:00").toLocaleDateString("pt-BR"); }
 
 export const STAFF: Record<string, { senha: string; area: "recepcao" | "gestao" }> = {
   recepcao: { senha: "Recep@2026", area: "recepcao" },
