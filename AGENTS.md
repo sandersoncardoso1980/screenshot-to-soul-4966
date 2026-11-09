@@ -8,3 +8,4 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+- All app data (citizens, bookings, audit log, settings) lives in Lovable Cloud tables with RLS on and no policies; only server functions in src/lib/agenda.functions.ts touch them via the admin client after checking citizen CPF+PIN or staff credentials — there is no Supabase Auth, so direct browser access must stay locked.
