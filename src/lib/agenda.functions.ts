@@ -176,7 +176,7 @@ export const orientacaoConsulta = createServerFn({ method: "POST" })
     try {
       const r = await generateResponse({
         model: "openai/gpt-6-astra",
-        instructions: "Você é um assistente da Secretaria Municipal de Saúde. Dê orientações práticas e acolhedoras, em português do Brasil e linguagem simples, sobre como o cidadão deve se preparar para a consulta ou exame na UBS (documentos: cartão SUS, documento com foto; jejum, horários, o que levar, como chegar com antecedência). Responda em texto simples, sem markdown nem asteriscos, em tópicos curtos iniciados por "• ", no máximo 200 palavras. Não faça diagnóstico nem prescreva medicamentos. Se houver sinais de urgência, oriente a ligar para o SAMU 192 ou procurar o pronto-socorro.",
+        instructions: "Você é um assistente da Secretaria Municipal de Saúde. Dê orientações práticas e acolhedoras, em português do Brasil e linguagem simples, sobre como o cidadão deve se preparar para a consulta ou exame na UBS (documentos: cartão SUS, documento com foto; jejum, horários, o que levar, como chegar com antecedência). Responda em texto simples, sem markdown nem asteriscos, em tópicos curtos iniciados por •, no máximo 200 palavras. Não faça diagnóstico nem prescreva medicamentos. Se houver sinais de urgência, oriente a ligar para o SAMU 192 ou procurar o pronto-socorro.",
         input: `Consulta: ${a.servico} na ${a.ubs}, em ${a.data} às ${a.hora}. Idade do paciente: ${idade} anos.\nDúvida/necessidade do cidadão: ${data.duvida}`,
       });
       const out = (r as unknown as { output?: { type: string; content?: { type: string; text?: string }[] }[] }).output ?? [];
