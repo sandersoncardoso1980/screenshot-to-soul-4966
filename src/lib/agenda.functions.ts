@@ -163,3 +163,27 @@ export const gestaoSalvarWhatsapp = createServerFn({ method: "POST" })
     await log(data.user, data.numero ? `Definiu WhatsApp de encaminhamento: +${data.numero}` : "Removeu WhatsApp de encaminhamento");
     return { ok: true };
   });
+
+export const orientacaoConsulta = createServerFn({ method: "POST" })
+  .inputValidator((d: CidIn & { id: string; duvida: string }) => ({ ...cidIn(d), id: str(d.id, 40), duvida: str(d.duvida, 1000) }))
+  .handler(async ({ data }): Promise<{ texto: string; erro?: string }> => {
+    const c = await authCidadao(data.cpf, data.pin);
+    if (data.duvida.length < 3) return { texto: "", erro: "Descreva sua dúvida ou necessidade." };
+    const { data: a } = await (await db()).from("agendamentos").select("ubs,servico,data,hora").eq("id", data.id).eq("cpf", c.cpf).maybeSingle();
+    if (!a) return { texto: "", erro: "Agendamento não encontrado." };
+    const idade = Math.floor((Date.now() - new Date(c.nascimento).getTime()) / 31557600000);
+    const { generateResponse, GatewayError } = await import("@lovable.dev/ai-gateway");
+    try {
+      const r = await generateResponse({
+        model: "openai/gpt-6-astra",
+        instructions: "Você é um assistente da Secretaria Municipal de Saúde. Dê orientações práticas e acolhedoras, em português do Brasil e linguagem simples, sobre como o cidadão deve se preparar para a consulta ou exame na UBS (documentos: cartão SUS, documento com foto; jejum, horários, o que levar, como chegar com antecedência). Responda em texto simples, sem markdown nem asteriscos, em tópicos curtos iniciados por "• ", no máximo 200 palavras. Não faça diagnóstico nem prescreva medicamentos. Se houver sinais de urgência, oriente a ligar para o SAMU 192 ou procurar o pronto-socorro.",
+        input: `Consulta: ${a.servico} na ${a.ubs}, em ${a.data} às ${a.hora}. Idade do paciente: ${idade} anos.\nDúvida/necessidade do cidadão: ${data.duvida}`,
+      });
+      const out = (r as unknown as { output?: { type: string; content?: { type: string; text?: string }[] }[] }).output ?? [];
+      const texto = out.flatMap((o) => o.content ?? []).filter((p) => p.type === "output_text").map((p) => p.text ?? "").join("\n").replace(/\*\*?/g, "").trim();
+      return texto ? { texto } : { texto: "", erro: "Não foi possível gerar a orientação agora." };
+    } catch (e) {
+      if (e instanceof GatewayError) { console.error("AI gateway", e.code, e.httpStatus); return { texto: "", erro: e.httpStatus === 402 ? "Serviço de orientação temporariamente indisponível." : "Não foi possível gerar a orientação agora. Tente novamente." }; }
+      throw e;
+    }
+  });

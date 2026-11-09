@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { agendar, cancelarAgendamento, cidadaoCadastro, cidadaoLogin, horariosOcupados, meusAgendamentos } from "@/lib/agenda.functions";
-import { LogOut, CalendarCheck, X } from "lucide-react";
+import { agendar, cancelarAgendamento, cidadaoCadastro, cidadaoLogin, horariosOcupados, meusAgendamentos, orientacaoConsulta } from "@/lib/agenda.functions";
+import { LogOut, CalendarCheck, X, Sparkles } from "lucide-react";
 import {
   BAIRROS, HORARIOS, SERVICOS, UBS, type Cidadao,
   formatCPF, onlyDigits, validarCPF,
@@ -152,7 +152,41 @@ function AreaLogada({ user, onLogout }: { user: Sessao; onLogout: () => void }) 
           </ul>
         )}
       </section>
+      {meus.length > 0 && <Orientacao user={user} meus={meus} />}
     </div>
+  );
+}
+
+function Orientacao({ user, meus }: { user: Sessao; meus: Meu[] }) {
+  const [id, setId] = useState(meus[0]!.id); const [duvida, setDuvida] = useState("");
+  const [res, setRes] = useState(""); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!meus.some((m) => m.id === id)) setId(meus[0]!.id); }, [meus]);
+  const enviar = async (e: React.FormEvent) => {
+    e.preventDefault(); setBusy(true); setErr(""); setRes("");
+    try { const r = await orientacaoConsulta({ data: { cpf: user.cpf, pin: user.pin, id, duvida } }); r.erro ? setErr(r.erro) : setRes(r.texto); }
+    catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
+  };
+  return (
+    <form onSubmit={enviar} className="card-surface space-y-4 p-5">
+      <div className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-accent" /><h3 className="text-lg font-semibold">Como me preparar?</h3></div>
+      <p className="text-sm text-muted-foreground">Conte suas dúvidas ou necessidades e receba uma orientação personalizada para a consulta.</p>
+      <Field label="Consulta">
+        <select className="field" value={id} onChange={(e) => setId(e.target.value)}>
+          {meus.map((a) => <option key={a.id} value={a.id}>{a.servico} · {a.ubs} · {new Date(a.data + "T00:00").toLocaleDateString("pt-BR")} {a.hora}</option>)}
+        </select>
+      </Field>
+      <Field label="Sua dúvida ou necessidade">
+        <textarea className="field min-h-24" maxLength={1000} value={duvida} onChange={(e) => setDuvida(e.target.value)} placeholder="Ex.: Preciso ir em jejum? Uso cadeira de rodas, a unidade tem acesso?" />
+      </Field>
+      <Msg text={err} />
+      <Btn type="submit" disabled={busy || duvida.trim().length < 3}>{busy ? "Gerando orientação..." : "Gerar orientação"}</Btn>
+      {res && (
+        <div className="rounded-lg border-l-4 border-l-accent bg-muted p-4 text-sm">
+          <p className="whitespace-pre-line leading-relaxed">{res}</p>
+          <p className="mt-3 text-xs text-muted-foreground">Orientação gerada automaticamente; não substitui a avaliação do profissional de saúde. Em emergência, ligue 192.</p>
+        </div>
+      )}
+    </form>
   );
 }
 
